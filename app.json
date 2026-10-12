@@ -6,6 +6,22 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "fuelspotter",
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FuelSpotter uses the camera to capture live sightings.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FuelSpotter uses your location to tag sightings and show nearby ones."
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true
     },
@@ -16,7 +32,12 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_ANDROID_MAPS_KEY"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
