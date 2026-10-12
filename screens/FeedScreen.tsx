@@ -5,7 +5,7 @@ import { SightingCard } from '../components/SightingCard';
 import { ReportFab } from '../components/ReportFab';
 
 export default function FeedScreen() {
-  const { sightings, now, vote, loading, error, refetch } = useSightings();
+  const { sightings, loading, error, refetch } = useSightings();
 
   return (
     <View className="flex-1 bg-neutral-100">
@@ -15,7 +15,7 @@ export default function FeedScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 16 }}
         refreshing={loading}
         onRefresh={refetch}
-        renderItem={({ item }) => <SightingCard sighting={item} now={now} onVote={vote} />}
+        renderItem={({ item }) => <SightingCard sighting={item} />}
         ListEmptyComponent={
           <View className="items-center pt-24">
             <Text className="text-neutral-500">

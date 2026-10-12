@@ -1,31 +1,35 @@
+// components/SightingCard.tsx (replaces v1; now self-contained)
 import React, { useState } from 'react';
 import { Alert, Image, Pressable, Text, View } from 'react-native';
 import { BRANDS } from '../constants/brands';
-import type { Sighting, VoteType } from '../types/sighting';
+import { useSightings } from '../context/SightingsContext';
+import { formatMiles, haversineMeters, IN_RANGE_METERS } from '../utils/geo';
+import type { Sighting } from '../types/sighting';
+import { Countdown } from './Countdown';
+import { ReportModal } from './ReportModal';
 
-interface Props {
-  sighting: Sighting;
-  now: number;
-  onVote: (id: string, v: VoteType) => Promise<string | null>;
-}
-
-function formatMiles(meters: number): string {
-  const mi = meters / 1609.34;
-  return mi < 0.1 ? '<0.1 mi' : `${mi.toFixed(1)} mi`;
-}
-
-export function SightingCard({ sighting, now, onVote }: Props) {
-  const [pending, setPending] = useState<VoteType | null>(null);
+export function SightingCard({ sighting }: { sighting: Sighting }) {
+  const { livePosition, confirm } = useSightings();
+  const [pending, setPending] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const brand = BRANDS[sighting.brand] ?? BRANDS.other;
-  const minsLeft = Math.max(0, Math.ceil((Date.parse(sighting.expires_at) - now) / 60_000));
-  const minsAgo = Math.max(0, Math.floor((now - Date.parse(sighting.created_at)) / 60_000));
 
-  const handle = async (v: VoteType) => {
-    setPending(v);
-    const err = await onVote(sighting.id, v);
-    setPending(null);
-    if (err) Alert.alert('Vote failed', err);
+  const meters = livePosition ? haversineMeters(livePosition, sighting) : null;
+  const inRange = meters !== null && meters <= IN_RANGE_METERS;
+  const canConfirm = inRange && !sighting.has_confirmed && !pending;
+
+  const handleConfirm = async () => {
+    setPending(true);
+    const err = await confirm(sighting.id);
+    setPending(false);
+    if (err) Alert.alert("Couldn't confirm", err);
   };
+
+  const confirmLabel = sighting.has_confirmed
+    ? 'Confirmed'
+    : pending ? '…'
+    : inRange ? `Still here (${sighting.confirm_count})`
+    : 'Get within 100 m';
 
   return (
     <View className="overflow-hidden rounded-2xl bg-white shadow-sm shadow-black/20">
@@ -35,35 +39,33 @@ export function SightingCard({ sighting, now, onVote }: Props) {
           <View style={{ backgroundColor: brand.color }} className="rounded-full px-3 py-1">
             <Text style={{ color: brand.text }} className="text-xs font-bold">{brand.label}</Text>
           </View>
-          <Text className="text-xs text-neutral-500">
-            {minsAgo}m ago · {minsLeft}m left · {formatMiles(sighting.distance_meters)}
-          </Text>
+          <View className="items-end">
+            <Countdown until={sighting.expires_at} className="text-lg font-bold tabular-nums" />
+            <Text className="text-[10px] uppercase tracking-wide text-neutral-400">left on the map</Text>
+          </View>
         </View>
-        <Text className="mt-2 text-base font-medium" numberOfLines={2}>
-          {sighting.address ?? 'Unknown location'}
-        </Text>
+
+        <Text className="mt-2 text-base font-medium" numberOfLines={2}>{sighting.address ?? 'Unknown location'}</Text>
+        {meters !== null && <Text className="text-xs text-neutral-500">{formatMiles(meters)} away</Text>}
 
         <View className="mt-3 flex-row gap-3">
           <Pressable
-            disabled={pending !== null}
-            onPress={() => handle('still_here')}
-            className="flex-1 items-center rounded-full bg-neutral-900 py-3"
+            disabled={!canConfirm}
+            onPress={handleConfirm}
+            className={`flex-1 items-center rounded-full py-3 ${canConfirm ? 'bg-neutral-900' : 'bg-neutral-200'}`}
           >
-            <Text className="font-semibold text-white">
-              {pending === 'still_here' ? '…' : `Still here (${sighting.upvotes})`}
-            </Text>
+            <Text className={`font-semibold ${canConfirm ? 'text-white' : 'text-neutral-500'}`}>{confirmLabel}</Text>
           </Pressable>
           <Pressable
-            disabled={pending !== null}
-            onPress={() => handle('gone')}
+            disabled={sighting.has_reported}
+            onPress={() => setReportOpen(true)}
             className="flex-1 items-center rounded-full bg-neutral-100 py-3"
           >
-            <Text className="font-semibold">
-              {pending === 'gone' ? '…' : `Gone (${sighting.downvotes})`}
-            </Text>
+            <Text className="font-semibold">{sighting.has_reported ? 'Reported' : 'Not here'}</Text>
           </Pressable>
         </View>
       </View>
+      <ReportModal visible={reportOpen} sightingId={sighting.id} onClose={() => setReportOpen(false)} />
     </View>
   );
 }

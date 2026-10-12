@@ -4,4 +4,5 @@
     "strict": true
   },
   "include": ["**/*.ts", "**/*.tsx", "nativewind-env.d.ts"]
+  "exclude": ["supabase/functions"]
 }

@@ -1,72 +1,63 @@
-import { supabase, ensureSession } from '../lib/supabase';
+import { requireSession, SUPABASE_ANON_KEY, SUPABASE_URL } from '../lib/supabase';
 import type { BrandKey } from '../constants/brands';
 
-const BUCKET = 'sighting-photos';
-
 export interface UploadSightingInput {
-  photoUri: string;     // file:// URI straight from the camera
-  brand: BrandKey;
+  photoUri: string;
   latitude: number;
   longitude: number;
   address: string | null;
-  capturedAt: string;   // ISO string recorded at shutter time
+  capturedAt: string;   // ISO string taken at shutter time
 }
+
+export type SubmitErrorCode =
+  | 'daily_limit' | 'not_a_brand_vehicle' | 'verification_unavailable'
+  | 'unauthorized' | 'invalid' | 'network' | 'unknown';
 
 export type UploadSightingResult =
-  | { ok: true; sightingId: string }
-  | { ok: false; error: string };
+  | { ok: true; sightingId: string; brand: BrandKey; streakCount: number }
+  | { ok: false; code: SubmitErrorCode; message: string; nextAt?: string };
 
-/** Turns raw Postgres exception text into something a human can read. */
-function friendlyError(message: string): string {
-  if (message.includes('stale')) return 'That capture is too old. Take a fresh photo.';
-  if (message.includes('rate limit')) return 'Too many reports in a short time. Give it a few minutes.';
-  if (message.includes('not authenticated')) return 'Session expired. Restart the app and try again.';
-  return message;
-}
-
-/**
- * 1. Upload JPEG to Storage under <userId>/…  (matches the storage RLS policy)
- * 2. Insert the row via create_sighting()
- * 3. If step 2 fails, delete the orphaned photo
- * Never throws; callers get a discriminated result.
- */
+/** Sends the photo + metadata to the verify-sighting Edge Function. Never throws. */
 export async function uploadSighting(input: UploadSightingInput): Promise<UploadSightingResult> {
-  let uploadedPath: string | null = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
 
   try {
-    const session = await ensureSession();
+    const session = await requireSession();
 
-    // fetch(file://…).arrayBuffer() is the most reliable way to get bytes in RN
-    // without extra deps. Blob uploads from RN can silently produce 0-byte files.
-    const response = await fetch(input.photoUri);
-    if (!response.ok) throw new Error('Could not read the captured photo.');
-    const bytes = await response.arrayBuffer();
-    if (bytes.byteLength === 0) throw new Error('Captured photo was empty.');
+    // Multipart avoids base64-inflating the photo on the client.
+    const form = new FormData();
+    form.append('photo', { uri: input.photoUri, name: 'sighting.jpg', type: 'image/jpeg' } as unknown as Blob);
+    form.append('latitude', String(input.latitude));
+    form.append('longitude', String(input.longitude));
+    form.append('captured_at', input.capturedAt);
+    if (input.address) form.append('address', input.address);
 
-    const path = `${session.user.id}/${Date.now()}.jpg`;
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
-      .upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
-    if (uploadError) throw new Error(`Photo upload failed: ${uploadError.message}`);
-    uploadedPath = path;
-
-    const { data: { publicUrl } } = supabase.storage.from(BUCKET).getPublicUrl(path);
-
-    const { data, error: rpcError } = await supabase.rpc('create_sighting', {
-      p_brand: input.brand,
-      p_lat: input.latitude,
-      p_lng: input.longitude,
-      p_address: input.address,
-      p_photo_url: publicUrl,
-      p_captured_at: input.capturedAt,
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/verify-sighting`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY },
+      body: form,   // don't set Content-Type; fetch adds the multipart boundary
+      signal: controller.signal,
     });
-    if (rpcError) throw new Error(friendlyError(rpcError.message));
+    const body = await res.json().catch(() => null);
 
-    return { ok: true, sightingId: data as string };
-  } catch (e) {
-    if (uploadedPath) {
-      try { await supabase.storage.from(BUCKET).remove([uploadedPath]); } catch { /* best effort */ }
+    if (res.ok && body?.ok) {
+      return { ok: true, sightingId: body.sighting_id, brand: body.brand, streakCount: body.streak_count };
     }
-    return { ok: false, error: e instanceof Error ? e.message : 'Something went wrong.' };
+    return {
+      ok: false,
+      code: (body?.error as SubmitErrorCode) ?? 'unknown',
+      message: body?.message ?? 'Something went wrong. Try again.',
+      nextAt: body?.next_at ?? undefined,
+    };
+  } catch (e) {
+    const aborted = e instanceof Error && e.name === 'AbortError';
+    return {
+      ok: false,
+      code: 'network',
+      message: aborted ? 'That took too long. Check your connection and try again.' : 'Network error. Check your connection and try again.',
+    };
+  } finally {
+    clearTimeout(timeout);
   }
 }

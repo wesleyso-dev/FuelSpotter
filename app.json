@@ -20,10 +20,16 @@
         {
           "locationWhenInUsePermission": "FuelSpotter uses your location to tag sightings and show nearby ones."
         }
-      ]
+      ],
+      "react-native-fast-tflite",
+      "@react-native-google-signin/google-signin",
+      "expo-apple-authentication",
+      ["@react-native-google-signin/google-signin", { "iosUrlScheme": "com.googleusercontent.apps.YOUR_IOS_CLIENT_ID" }]
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourname.fuelspotter",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -37,7 +43,8 @@
         "googleMaps": {
           "apiKey": "YOUR_ANDROID_MAPS_KEY"
         }
-      }
+      },
+      "package": "com.yourname.fuelspotter"
     },
     "web": {
       "favicon": "./assets/favicon.png"
