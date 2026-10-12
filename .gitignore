@@ -39,3 +39,11 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# local env files
+.env
+.env*.local
+
+# debug logs from troubleshooting
+metro-log.txt
+export-log.txt
